@@ -4,7 +4,54 @@ const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&
 const link=s=>{try{return new URL(s).protocol==='https:'?s:null;}catch{return null;}};
 const money=n=>Number(n).toLocaleString('ko-KR')+'원';
 async function syncProfile(){const g=generation;const p=await api.profile();if(g!==generation)return;profile=p;x.profile(p);}
-function detail(p){const evidence=(p.evidence||[]).filter(e=>e.verified&&link(e.source));return `<h2>${esc(p.name)}</h2><p>${esc(p.brand)} · ${money(p.price)}</p><p>용도: ${esc(p.usages.join(', '))}</p><p>배송비: ${p.shipping===null?'미확인 · 총액 예산 충족 여부 미확인':money(p.shipping)}</p><p>가격 확인: ${esc(p.checked_at)}</p>${evidence.map(e=>`<p>${esc(e.description)} <a href="${esc(e.source)}" target="_blank" rel="noopener noreferrer">근거 출처</a></p>`).join('')}<p>소재 함량·보증·수리 세부 정보: 근거에 명시되지 않은 항목은 확인되지 않음</p>${link(p.purchase_url)?`<a href="${esc(p.purchase_url)}" target="_blank" rel="noopener noreferrer">실제 상품 페이지로 이동</a>`:'구매 링크 확인 필요'}`;}
+
+function detail(p){
+ const evidence=Array.isArray(p.evidence)
+   ?p.evidence.filter(e=>e&&typeof e==='object')
+   :[];
+
+ const sustainability=evidence.map(e=>{
+   const verified=e.verified===true;
+   const status=verified
+     ?'검증 완료로 등록된 근거'
+     :'독립 검증 미완료 · 등록된 주장';
+
+   const type={
+     recycled:'재활용 소재',
+     reuse:'재사용',
+     upcycled:'새활용',
+     certification:'환경 인증',
+     repairability:'수리 가능성'
+   }[e.type]||'상품 관련 정보';
+
+   const source=link(e.source);
+
+   return `<div style="padding:10px;margin:8px 0;border:1px solid #ddd;border-radius:8px">
+     <p><strong>${esc(type)}</strong></p>
+     <p>${esc(e.description||'상세 설명 없음')}</p>
+     <p>근거 상태: ${esc(status)}</p>
+     ${source?`<a href="${esc(source)}" target="_blank" rel="noopener noreferrer">근거 출처 확인</a>`:''}
+   </div>`;
+ }).join('');
+
+ return `
+   <h2>${esc(p.name)}</h2>
+   <p>${esc(p.brand)} · ${money(p.price)}</p>
+   <p>용도: ${esc((p.usages||[]).join(', '))}</p>
+   <p>배송비: ${p.shipping===null?'미확인 · 총액 예산 충족 여부 미확인':money(p.shipping)}</p>
+   <p>가격 확인: ${esc(p.checked_at)}</p>
+
+   <h3>지속가능성 관련 정보</h3>
+   ${sustainability||'<p>등록된 지속가능성 관련 근거가 없어요.</p>'}
+
+   <p>※ 판매자 주장은 독립적으로 검증된 사실이나 환경 인증을 의미하지 않습니다.</p>
+   <p>내구성·보증·수리 가능성: 별도 근거가 없는 항목은 미확인</p>
+
+   ${link(p.purchase_url)
+     ?`<a href="${esc(p.purchase_url)}" target="_blank" rel="noopener noreferrer">실제 상품 페이지로 이동</a>`
+     :'구매 링크 확인 필요'}
+ `;
+}
 async function showResults(){const g=generation;const target=x.target();target.innerHTML='<section class="card" role="status">검증 상품을 불러오는 중…</section>';try{const rows=await api.products();if(g!==generation||!x.onResults())return;products=recommend(rows,b.conditions());choices.clear();drawResults(rows.length);}catch(e){if(g===generation&&x.onResults())target.innerHTML=`<section class="card"><h2>상품 조회에 실패했어요.</h2><p>${esc(e.message)}</p><p>서버 연결·추가 SQL 적용 여부를 확인하세요. 상품 없음으로 처리하지 않았습니다.</p><button onclick="go('input')">입력 수정</button></section>`;}}
 function drawResults(total){const c=b.conditions();x.target().innerHTML=`<section class="card"><h1>나에게 맞는 합리적 소비 추천</h1><p>${esc(c.name)} · 최대 ${money(c.budget)} · ${esc(c.usage)} · 우선순위 ${esc(c.priority)}</p><p>${products.length}개 추천 / ${c.count}개 요청. 확인된 배송비 포함, 배송비 미확인은 총액 보장 제외.</p><p>기존 물건 활용·수리·대여가 가능한지도 함께 확인해 보세요.</p><button onclick="go('input')">조건 수정</button><button id="real-compare">선택 상품 비교 (최대 3개)</button>${!products.length?`<p>${total?'조건에 맞는 검증 상품이 없어요. 용도·예산·품목을 수정해 보세요.':'현재 추천 가능한 상품이 없어요. 상품 데이터 등록 여부와 검색 조건을 확인해 주세요.'}</p>`:''}</section>`+products.map((p,i)=>`<article class="card"><h2>${esc(p.name)}</h2><p>${money(p.price)} · ${esc(p.shippingNotice)}</p><p>
 추천 이유: 상품 종류와 사용 목적이 일치하며, 등록된 상품 가격이 설정 예산 이내입니다. 배송비가 미확인된 경우 최종 결제금액은 보장되지 않습니다
