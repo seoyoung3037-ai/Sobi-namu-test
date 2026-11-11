@@ -1,0 +1,21 @@
+
+name: Sobi Namu Product Sync
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  product-sync:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Check product sync
+        run: |
+          echo "Sobi Namu product sync is ready!"
+          echo "Next step: Connect a free product data source."
