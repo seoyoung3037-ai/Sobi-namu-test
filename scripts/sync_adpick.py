@@ -1,5 +1,4 @@
 
-"""Sync Adpick shopping API products into Sobi Namu. Stdlib only; no scraping."""
 import hashlib
 import json
 import os
@@ -11,143 +10,295 @@ import urllib.request
 from datetime import datetime, timezone
 
 
-def fetch_json(url, headers=None):
-    req = urllib.request.Request(url, headers=headers or {'Accept': 'application/json', 'User-Agent': 'SobiNamu/1.0'})
-    with urllib.request.urlopen(req, timeout=30) as response:
-        if response.status != 200:
-            raise ValueError(f'Unexpected HTTP {response.status}')
-        raw = response.read(8_000_001)
-        if len(raw) > 8_000_000:
-            raise ValueError('API response exceeds 8MB limit')
-        return json.loads(raw.decode('utf-8-sig'))
-
-
-def first(d, *keys):
+def first(data, *keys):
     for key in keys:
-        if key in d and d[key] not in (None, ''):
-            return d[key]
+        value = data.get(key)
+        if value is not None and value != "":
+            return value
     return None
 
 
 def find_items(obj):
+    """Find actual products inside Adpick's theme lists."""
     if isinstance(obj, list):
-        if obj and all(isinstance(i, dict) for i in obj):
-            return obj
-        return []
+        if any(
+            isinstance(item, dict) and "product_name" in item
+            for item in obj
+        ):
+            return [
+                item for item in obj
+                if isinstance(item, dict)
+                and "product_name" in item
+            ]
+
+        products = []
+        for item in obj:
+            products.extend(find_items(item))
+        return products
+
     if isinstance(obj, dict):
-        for k in ('products', 'items', 'productList', 'product_list', 'list', 'results', 'data', 'result'):
-            if k in obj:
-                found = find_items(obj[k])
-                if found:
-                    return found
+        products = []
+        for key in (
+            "list", "products", "items", "productList",
+            "product_list", "results", "data", "result"
+        ):
+            if key in obj:
+                products.extend(find_items(obj[key]))
+
+        if products:
+            return products
+
         for value in obj.values():
-            if isinstance(value, (list, dict)):
-                found = find_items(value)
-                if found:
-                    return found
+            if isinstance(value, (dict, list)):
+                products.extend(find_items(value))
+        return products
+
     return []
 
 
-def valid_https(value):
+def https_url(value):
     if not isinstance(value, str):
         return None
+
     value = value.strip()
     parsed = urllib.parse.urlparse(value)
-    return value if parsed.scheme == 'https' and parsed.netloc and not parsed.username else None
+
+    if (
+        parsed.scheme == "https"
+        and parsed.hostname
+        and not parsed.username
+        and not parsed.password
+    ):
+        return value
+
+    return None
 
 
-def amount(value):
+def price_number(value):
     if value is None or isinstance(value, bool):
         return None
+
     if isinstance(value, (int, float)):
-        n = int(value)
+        number = int(value)
     elif isinstance(value, str):
-        s = re.sub(r'[\s,원₩]', '', value)
-        if not re.fullmatch(r'\d+(?:\.0+)?', s):
+        cleaned = re.sub(r"[\s,원₩]", "", value)
+        if not re.fullmatch(r"\d+(?:\.0+)?", cleaned):
             return None
-        n = int(float(s))
+        number = int(float(cleaned))
     else:
         return None
-    return n if 0 <= n <= 2_000_000_000 else None
+
+    if 0 <= number <= 2_000_000_000:
+        return number
+
+    return None
 
 
 def normalize(item):
-    name = first(item, 'productName', 'product_name', 'name', 'title', 'goods_name', 'goodsName', 'productnm')
-    price = amount(first(item, 'salePrice', 'sale_price', 'price', 'productPrice', 'product_price', 'selling_price', 'discount_price', 'productprice'))
-    url = valid_https(first(item, 'productUrl', 'product_url', 'link', 'url', 'purchase_url', 'click_url', 'deeplink', 'productLink', 'productlink'))
-    if not isinstance(name, str) or not name.strip() or price is None or not url:
+    name = first(
+        item, "product_name", "productName",
+        "name", "title"
+    )
+
+    price = price_number(first(
+        item, "price_sale", "salePrice",
+        "sale_price", "price"
+    ))
+
+    purchase_url = https_url(first(
+        item, "buyurl", "productUrl",
+        "product_url", "purchase_url", "link", "url"
+    ))
+
+    if (
+        not isinstance(name, str)
+        or not name.strip()
+        or price is None
+        or not purchase_url
+    ):
         return None
-    source_id = first(item, 'productId', 'product_id', 'id', 'goods_id', 'goodsId', 'productno', 'product_no')
-    if source_id is None:
-        source_id = hashlib.sha256((url+'|'+name).encode()).hexdigest()[:32]
-    image = valid_https(first(item, 'imageUrl', 'image_url', 'image', 'thumbnail', 'thumbnailUrl', 'thumbnail_url', 'img', 'productImage', 'product_image'))
-    shipping = amount(first(item, 'shipping', 'shipping_fee', 'shippingFee', 'delivery_fee', 'deliveryFee'))
+
+    product_id = first(
+        item, "product_id", "productId",
+        "id", "goods_id"
+    )
+
+    if product_id is None:
+        product_id = hashlib.sha256(
+            purchase_url.encode("utf-8")
+        ).hexdigest()[:32]
+
+    image_url = https_url(first(
+        item, "photo", "imageUrl",
+        "image_url", "image", "thumbnail"
+    ))
+
+    mall_name = first(
+        item, "mall_name", "brand",
+        "brandName", "brand_name"
+    )
+
     return {
-        'source': 'adpick', 'source_product_id': str(source_id)[:200], 'name': name.strip()[:500],
-        'brand': str(first(item, 'brand', 'brandName', 'brand_name') or '')[:200] or None,
-        'category': str(first(item, 'category', 'categoryName', 'category_name') or '')[:200] or None,
-        'price': price, 'currency': 'KRW', 'image_url': image, 'purchase_url': url,
-        'shipping': shipping, 'sustainability_status': 'unverified',
-        'updated_at': datetime.now(timezone.utc).isoformat(),
+        "source": "adpick",
+        "source_product_id": str(product_id)[:200],
+        "name": name.strip()[:500],
+        "brand": str(mall_name)[:200] if mall_name else None,
+        "category": None,
+        "price": price,
+        "currency": "KRW",
+        "image_url": image_url,
+        "purchase_url": purchase_url,
+        "shipping": None,
+        "sustainability_status": "unverified",
+        "updated_at": datetime.now(
+            timezone.utc
+        ).isoformat()
     }
 
 
+def fetch_products(api_url):
+    request = urllib.request.Request(
+        api_url,
+        headers={
+            "Accept": "application/json",
+            "User-Agent": "SobiNamu/1.0"
+        }
+    )
+
+    with urllib.request.urlopen(
+        request, timeout=30
+    ) as response:
+        raw = response.read(8_000_001)
+
+    if len(raw) > 8_000_000:
+        raise ValueError("API response too large")
+
+    payload = json.loads(raw.decode("utf-8-sig"))
+    return find_items(payload)
+
+
+def save_products(rows, supabase_url, secret_key):
+    endpoint = (
+        supabase_url.rstrip("/")
+        + "/rest/v1/sobi_product_catalog"
+        + "?on_conflict=source,source_product_id"
+    )
+
+    for start in range(0, len(rows), 100):
+        batch = rows[start:start + 100]
+
+        request = urllib.request.Request(
+            endpoint,
+            data=json.dumps(
+                batch, ensure_ascii=False
+            ).encode("utf-8"),
+            headers={
+                "apikey": secret_key,
+                "Authorization": "Bearer " + secret_key,
+                "Content-Type": "application/json",
+                "Prefer": (
+                    "resolution=merge-duplicates,"
+                    "return=minimal"
+                )
+            },
+            method="POST"
+        )
+
+        with urllib.request.urlopen(
+            request, timeout=30
+        ) as response:
+            if response.status not in (200, 201, 204):
+                raise RuntimeError(
+                    f"Supabase HTTP {response.status}"
+                )
+
+
 def main():
-    api_url = os.environ.get('ADPICK_API_URL', '').strip()
+    api_url = os.environ.get(
+        "ADPICK_API_URL", ""
+    ).strip()
+
     parsed = urllib.parse.urlparse(api_url)
-    host = (parsed.hostname or '').lower()
-    if parsed.scheme != 'https' or not (host == 'adpick.co.kr' or host.endswith('.adpick.co.kr')) or parsed.username or parsed.password:
-        sys.exit('ADPICK_API_URL must be an HTTPS URL hosted by adpick.co.kr')
+    host = (parsed.hostname or "").lower()
+
+    if (
+        parsed.scheme != "https"
+        or not (
+            host == "adpick.co.kr"
+            or host.endswith(".adpick.co.kr")
+        )
+        or parsed.username
+        or parsed.password
+    ):
+        sys.exit(
+            "Invalid ADPICK_API_URL configuration"
+        )
+
     try:
-        payload = fetch_json(api_url)
-    except (urllib.error.URLError, ValueError, json.JSONDecodeError):
-        sys.exit('Adpick request failed; check the saved API URL and access permissions')
-    items = find_items(payload)
-    if not items:
-        keys = list(payload)[:12] if isinstance(payload, dict) else []
-        sys.exit(f'No recognizable product list. Top-level response keys: {keys}. No data was written.')
+        items = fetch_products(api_url)
+    except Exception as error:
+        sys.exit(
+            "Adpick API request failed: "
+            + type(error).__name__
+        )
+
+    print("Products found:", len(items))
+
     records = {}
+
     for item in items:
         row = normalize(item)
         if row:
-            records[row['source_product_id']] = row
-    print(f'API returned {len(items)} items; validated {len(records)} products')
-    
+            records[row["source_product_id"]] = row
+
+    print("Valid products:", len(records))
 
     if not records:
-        print('First product field names:', sorted(items[0].keys()))
-        nested = items[0].get('list')
-        print('Nested list type:', type(nested).__name__)
-        if isinstance(nested, list) and nested:
-            print('Nested first item type:', type(nested[0]).__name__)
-            if isinstance(nested[0], dict):
-                print('Nested first item fields:', sorted(nested[0].keys()))
-        sys.exit('Product fields do not match expected schema. No data was written.')
+        if items:
+            print(
+                "Product fields:",
+                sorted(items[0].keys())
+            )
+        sys.exit(
+            "No valid products. Nothing was saved."
+        )
+
+    supabase_url = os.environ.get(
+        "SUPABASE_URL", ""
+    ).strip()
+
+    secret_key = os.environ.get(
+        "SUPABASE_SERVICE_ROLE_KEY", ""
+    ).strip()
+
+    if not supabase_url.startswith("https://"):
+        sys.exit("Missing SUPABASE_URL")
+
+    if not secret_key:
+        sys.exit("Missing SUPABASE_SERVICE_ROLE_KEY")
+
+    try:
+        save_products(
+            list(records.values()),
+            supabase_url,
+            secret_key
+        )
+    except urllib.error.HTTPError as error:
+        sys.exit(
+            f"Supabase save failed: HTTP {error.code}"
+        )
+    except Exception as error:
+        sys.exit(
+            "Supabase save failed: "
+            + type(error).__name__
+        )
+
+    print(
+        "Successfully synchronized",
+        len(records),
+        "products"
+    )
 
 
-    if len(records) < len(items):
-        print('Some items skipped because required name, numeric price or HTTPS purchase URL was missing.')
-    if os.environ.get('DRY_RUN', 'false').lower() == 'true':
-        print('Dry run completed. No data was written.')
-        return
-    supabase = os.environ.get('SUPABASE_URL', '').rstrip('/')
-    key = os.environ.get('SUPABASE_SERVICE_ROLE_KEY', '')
-    if not supabase.startswith('https://') or not key:
-        sys.exit('Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY in GitHub Secrets')
-    endpoint = supabase + '/rest/v1/sobi_product_catalog?on_conflict=source,source_product_id'
-    rows = list(records.values())
-    for start in range(0, len(rows), 100):
-        req = urllib.request.Request(endpoint, data=json.dumps(rows[start:start+100], ensure_ascii=False).encode(),
-            headers={'apikey': key, 'Authorization': 'Bearer '+key, 'Content-Type': 'application/json',
-                     'Prefer': 'resolution=merge-duplicates,return=minimal'}, method='POST')
-        try:
-            with urllib.request.urlopen(req, timeout=30) as response:
-                if response.status not in (200, 201, 204):
-                    raise RuntimeError(f'Supabase returned HTTP {response.status}')
-        except urllib.error.HTTPError as exc:
-            sys.exit(f'Supabase write failed: HTTP {exc.code}; verify table permissions and schema')
-    print(f'Successfully synchronized {len(rows)} real products to sobi_product_catalog')
-
-
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
