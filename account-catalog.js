@@ -44,8 +44,10 @@ export function recommend(rows,{name,budget,usage,count=5,priority='usage'}){
  const selected=rows.filter(p=>p.active&&p.review_status==='approved'&&p.in_stock&&https(p.purchase_url)&&Number.isInteger(p.price)&&p.price>=0&&p.price<=+budget&&
  (p.shipping===null||(Number.isInteger(p.shipping)&&p.shipping>=0&&p.price+p.shipping<=+budget))&&
  [p.name,p.category,...(p.keywords||[])].some(s=>norm(s).includes(norm(name)))&&
+
  (p.usages||[]).some(s=>norm(s)===norm(usage))&&
- Array.isArray(p.evidence)&&p.evidence.some(e=>evidenceTypes.has(e.type)&&e.verified===true&&norm(e.description)&&https(e.source)));
+ Array.isArray(p.evidence));
+
  const cost=p=>p.price+(p.shipping??0);
  const rank=p=>Math.max(0,...p.evidence.filter(e=>e.verified===true).map(e=>({'independently_verified':3,'official_document':2,'seller_statement':1}[e.verification_level]||0)));
  const fit=p=>(norm(p.name)===norm(name)?2:0)+(p.usages.some(u=>norm(u)===norm(usage))?1:0);
