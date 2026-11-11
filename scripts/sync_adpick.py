@@ -113,15 +113,17 @@ def main():
             records[row['source_product_id']] = row
     print(f'API returned {len(items)} items; validated {len(records)} products')
     
-if not records:
-    print('First product field names:', sorted(items[0].keys()))
-    nested = items[0].get('list')
-    print('Nested list type:', type(nested).__name__)
-    if isinstance(nested, list) and nested:
-        print('Nested first item type:', type(nested[0]).__name__)
-        if isinstance(nested[0], dict):
-            print('Nested first item fields:', sorted(nested[0].keys()))
-    sys.exit('Product fields do not match expected schema. No data was written.')
+
+    if not records:
+        print('First product field names:', sorted(items[0].keys()))
+        nested = items[0].get('list')
+        print('Nested list type:', type(nested).__name__)
+        if isinstance(nested, list) and nested:
+            print('Nested first item type:', type(nested[0]).__name__)
+            if isinstance(nested[0], dict):
+                print('Nested first item fields:', sorted(nested[0].keys()))
+        sys.exit('Product fields do not match expected schema. No data was written.')
+
 
     if len(records) < len(items):
         print('Some items skipped because required name, numeric price or HTTPS purchase URL was missing.')
