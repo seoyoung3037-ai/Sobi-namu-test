@@ -3,6 +3,8 @@ name: Sobi Namu Product Sync
 
 on:
   workflow_dispatch:
+  schedule:
+    - cron: '17 3 * * 1'
 
 permissions:
   contents: read
@@ -10,12 +12,19 @@ permissions:
 jobs:
   product-sync:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Check product sync
-        run: |
-          echo "Sobi Namu product sync is ready!"
-          echo "Next step: Connect a free product data source."
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Import Adpick products
+        env:
+          ADPICK_API_URL: ${{ secrets.ADPICK_API_URL }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: python scripts/sync_adpick.py
+
