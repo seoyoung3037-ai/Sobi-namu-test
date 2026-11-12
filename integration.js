@@ -6,7 +6,6 @@ const link=s=>{try{return new URL(s).protocol==='https:'?s:null;}catch{return nu
 const money=n=>Number(n).toLocaleString('ko-KR')+'원';
 async function syncProfile(){const g=generation;const p=await api.profile();if(g!==generation)return;profile=p;x.profile(p);}
 function detail(p){const evidence=(p.evidence||[]).filter(e=>e.verified&&link(e.source));return `<h2>${esc(p.name)}</h2><p>${esc(p.brand)} · ${money(p.price)}</p><p>용도: ${esc(p.usages.join(', '))}</p><p>배송비: ${p.shipping===null?'미확인 · 총액 예산 충족 여부 미확인':money(p.shipping)}</p><p>가격 확인: ${esc(p.checked_at)}</p>${evidence.map(e=>`<p>${esc(e.description)} <a href="${esc(e.source)}" target="_blank" rel="noopener noreferrer">근거 출처</a></p>`).join('')}<p>소재 함량·보증·수리 세부 정보: 근거에 명시되지 않은 항목은 확인되지 않음</p>${link(p.purchase_url)?`<a href="${esc(p.purchase_url)}" target="_blank" rel="noopener noreferrer">실제 상품 페이지로 이동</a>`:'구매 링크 확인 필요'}`;}
-async function showResults(){const g=generation;const target=x.target();target.innerHTML='<section class="card" role="status">검증 상품을 불러오는 중…</section>';try{const rows=await api.products();if(g!==generation||!x.onResults())return;products=recommend(rows,b.conditions());choices.clear();drawResults(rows.length);}catch(e){if(g===generation&&x.onResults())target.innerHTML=`<section class="card"><h2>상품 조회에 실패했어요.</h2><p>${esc(e.message)}</p><p>서버 연결·추가 SQL 적용 여부를 확인하세요. 상품 없음으로 처리하지 않았습니다.</p><button onclick="go('input')">입력 수정</button></section>`;}}
 
 const sobiPlaces = [
   {
