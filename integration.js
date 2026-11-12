@@ -7,12 +7,206 @@ const money=n=>Number(n).toLocaleString('ko-KR')+'원';
 async function syncProfile(){const g=generation;const p=await api.profile();if(g!==generation)return;profile=p;x.profile(p);}
 function detail(p){const evidence=(p.evidence||[]).filter(e=>e.verified&&link(e.source));return `<h2>${esc(p.name)}</h2><p>${esc(p.brand)} · ${money(p.price)}</p><p>용도: ${esc(p.usages.join(', '))}</p><p>배송비: ${p.shipping===null?'미확인 · 총액 예산 충족 여부 미확인':money(p.shipping)}</p><p>가격 확인: ${esc(p.checked_at)}</p>${evidence.map(e=>`<p>${esc(e.description)} <a href="${esc(e.source)}" target="_blank" rel="noopener noreferrer">근거 출처</a></p>`).join('')}<p>소재 함량·보증·수리 세부 정보: 근거에 명시되지 않은 항목은 확인되지 않음</p>${link(p.purchase_url)?`<a href="${esc(p.purchase_url)}" target="_blank" rel="noopener noreferrer">실제 상품 페이지로 이동</a>`:'구매 링크 확인 필요'}`;}
 async function showResults(){const g=generation;const target=x.target();target.innerHTML='<section class="card" role="status">검증 상품을 불러오는 중…</section>';try{const rows=await api.products();if(g!==generation||!x.onResults())return;products=recommend(rows,b.conditions());choices.clear();drawResults(rows.length);}catch(e){if(g===generation&&x.onResults())target.innerHTML=`<section class="card"><h2>상품 조회에 실패했어요.</h2><p>${esc(e.message)}</p><p>서버 연결·추가 SQL 적용 여부를 확인하세요. 상품 없음으로 처리하지 않았습니다.</p><button onclick="go('input')">입력 수정</button></section>`;}}
-function drawResults(total){const c=b.conditions();x.target().innerHTML=`<section class="card"><h1>나에게 맞는 검증 상품</h1><p>${esc(c.name)} · 최대 ${money(c.budget)} · ${esc(c.usage)} · 우선순위 ${esc(c.priority)}</p><p>${products.length}개 추천 / ${c.count}개 요청. 확인된 배송비 포함, 배송비 미확인은 총액 보장 제외.</p><p>기존 물건 활용·수리·대여가 가능한지도 함께 확인해 보세요.</p><button onclick="go('input')">조건 수정</button><button id="real-compare">선택 상품 비교 (최대 3개)</button>${!products.length?`<p>${total?'조건에 맞는 검증 상품이 없어요. 용도·예산·품목을 수정해 보세요.':'검토 완료된 판매 중 상품이 DB에 없어요. 관리자가 실제 상품과 근거를 등록해야 추천할 수 있습니다.'}</p>`:''}</section>`+products.map((p,i)=>`<article class="card"><h2>${esc(p.name)}</h2><p>${money(p.price)} · ${esc(p.shippingNotice)}</p><p>추천 이유: 품목 관련 정보·등록 용도 일치, 예산 및 검증 근거 조건 충족.</p><button data-detail="${i}">상세·구매 링크</button><button data-save="${i}">저장</button><label><input type="checkbox" data-compare="${i}">비교</label></article>`).join('');
- document.querySelectorAll('[data-detail]').forEach(el=>el.onclick=()=>x.modal(detail(products[+el.dataset.detail])));
- document.querySelectorAll('[data-save]').forEach(el=>el.onclick=()=>{x.saveProduct(products[+el.dataset.save]);});
- document.querySelectorAll('[data-compare]').forEach(el=>el.onchange=()=>{const id=+el.dataset.compare;if(el.checked&&choices.size>=3){el.checked=false;return x.toast('비교는 최대 3개까지 가능해요.');}el.checked?choices.add(id):choices.delete(id);});
- document.getElementById('real-compare').onclick=()=>{if(!choices.size)return x.toast('비교할 상품을 선택하세요.');const selected=[...choices].map(i=>products[i]);x.modal('<h2>실제 상품 비교</h2><div style="display:flex;gap:12px;overflow:auto">'+selected.map(p=>'<section style="min-width:210px;flex:1">'+detail(p)+'</section>').join('')+'</div>');};
+
+const sobiPlaces = [
+  {
+    name: '당근',
+    url: 'https://www.daangn.com/kr/buy-sell/',
+    description: '가까운 지역에서 중고 물건을 찾아보세요.',
+    types: ['general', 'fashion', 'home', 'electronics', 'books']
+  },
+  {
+    name: '번개장터',
+    url: 'https://m.bunjang.co.kr/',
+    description: '가방·의류·전자기기 등 중고 상품을 비교해 보세요.',
+    types: ['general', 'fashion', 'electronics']
+  },
+  {
+    name: '알라딘',
+    url: 'https://www.aladin.co.kr/',
+    description: '책을 새로 구매하기 전에 중고 도서를 확인해 보세요.',
+    types: ['books']
+  },
+  {
+    name: '아름다운가게',
+    url: 'https://www.beautifulstore.org/',
+    description: '기증 물품 재사용과 가까운 매장 정보를 살펴보세요.',
+    types: ['home', 'fashion', 'general']
+  },
+  {
+    name: '동구밭',
+    url: 'https://donggubat.com/',
+    description: '생활용품 대안을 살펴보고 제품별 환경 근거를 확인하세요.',
+    types: ['home', 'care']
+  }
+];
+
+function sobiType(name, usage) {
+  const t = `${name || ''} ${usage || ''}`.toLowerCase();
+
+  if (/책|도서|교재|문제집|참고서|소설|독서/.test(t))
+    return 'books';
+
+  if (/가방|백팩|의류|옷|신발|운동화|패션|자켓|코트/.test(t))
+    return 'fashion';
+
+  if (/노트북|휴대폰|핸드폰|태블릿|이어폰|컴퓨터|전자/.test(t))
+    return 'electronics';
+
+  if (/비누|샴푸|세제|화장품|세안|치약/.test(t))
+    return 'care';
+
+  if (/가구|책상|의자|주방|컵|텀블러|생활|수납/.test(t))
+    return 'home';
+
+  return 'general';
 }
+
+async function showResults() {
+  const c = b.conditions();
+  const type = sobiType(c.name, c.usage);
+
+  const sites = sobiPlaces.filter(p =>
+    p.types.includes(type)
+  );
+
+  const alternatives = [
+    {
+      title: '이미 가진 물건 활용',
+      body: '비슷한 물건을 가지고 있다면 먼저 다시 사용할 수 있는지 확인해 보세요.'
+    },
+    {
+      title: '수리·대여 검토',
+      body: '고장 난 물건은 수리 가능 여부를, 가끔 사용하는 물건은 대여 가능 여부를 살펴보세요.'
+    },
+    {
+      title: '중고 구매 우선 비교',
+      body: '중고 제품의 상태·가격·거래 안전성을 확인해 보세요.'
+    }
+  ];
+
+  const target = x.target();
+  if (!target) return;
+
+  target.innerHTML = `
+    <section class="card">
+      <h1>나에게 맞는 소비 대안</h1>
+
+      <p>
+        <strong>${esc(c.name || '물건')}</strong>
+        · 예산 ${money(c.budget || 0)}
+        · 용도 ${esc(c.usage || '미입력')}
+      </p>
+
+      <p>
+        구매 필요성은 입력된 정보만으로 확정할 수 없어요.
+        아래 선택지를 확인한 뒤 필요한 만큼 소비해 보세요.
+      </p>
+
+      <button id="sobi-edit-conditions" type="button">
+        조건 수정
+      </button>
+    </section>
+
+    <section class="card">
+      <h2>구매 전 먼저 확인해요</h2>
+
+      ${alternatives.map((a, i) => `
+        <div style="
+          padding:12px 0;
+          ${i ? 'border-top:1px solid #e4ebe4;' : ''}
+        ">
+          <strong>${i + 1}. ${esc(a.title)}</strong>
+          <p style="margin:6px 0 0">
+            ${esc(a.body)}
+          </p>
+        </div>
+      `).join('')}
+
+      <p style="font-size:.85rem;color:#65796b">
+        안전·위생·필수 학습용품 등은
+        새 제품이 더 적절할 수 있어요.
+      </p>
+    </section>
+
+    <section class="card">
+      <h2>추천 플랫폼</h2>
+
+      <p>
+        품목에 맞는 외부 사이트를 연결해 드려요.
+        개별 상품의 가격·재고·환경성은
+        소비나무가 검증한 것이 아니에요.
+      </p>
+
+      ${sites.map(p => `
+        <div style="
+          padding:14px 0;
+          border-top:1px solid #e4ebe4
+        ">
+          <strong>${esc(p.name)}</strong>
+
+          <p style="margin:6px 0">
+            ${esc(p.description)}
+          </p>
+
+          <a
+            href="${esc(p.url)}"
+            target="_blank"
+            rel="noopener noreferrer"
+            style="
+              display:inline-block;
+              padding:10px 14px;
+              border-radius:10px;
+              background:#315f43;
+              color:white;
+              text-decoration:none;
+            "
+          >
+            사이트 방문하기 ↗
+          </a>
+        </div>
+      `).join('')}
+    </section>
+
+    <section class="card">
+      <h2>지속가능성 확인 안내</h2>
+
+      <p>
+        중고 구매는 제품 재사용을 돕지만,
+        거래·배송 상황에 따라 환경 효과는
+        달라질 수 있어요.
+      </p>
+
+      <p>
+        새 제품은 환경인증·수리 가능성·내구성의
+        실제 근거를 확인해 주세요.
+      </p>
+
+      <p>
+        구매를 보류하거나 재사용·수리·구매를
+        선택했다면 기존 실천 기록 기능에
+        결과를 남겨 보세요.
+      </p>
+    </section>
+  `;
+
+  const edit = document.getElementById(
+    'sobi-edit-conditions'
+  );
+
+  if (edit) {
+    edit.onclick = () => {
+      if (typeof window.go === 'function') {
+        window.go('input');
+      } else {
+        x.toast(
+          '입력 화면으로 돌아가서 조건을 수정해 주세요.'
+        );
+      }
+    };
+  }
+}
+
 x.install({results:()=>void showResults(),detail,loggedIn:()=>!!me,plant:async()=>{try{await api.plant();await syncProfile();}catch(e){x.toast('새 씨앗 심기 실패: '+e.message);}},reward:(item,action)=>{if(!me)return;const g=generation;rewardQueue=rewardQueue.catch(()=>{}).then(async()=>{if(g!==generation)return;try{await api.reward(item,action);if(g===generation)await syncProfile();}catch(e){if(g===generation)x.toast('서버 성장 반영 실패: '+e.message+' · 기록 저장과 성장 반영은 별도입니다.');}});}});
 client.auth.onAuthStateChange((_event,session)=>{if(me?.id===session?.user?.id)return;me=session?.user??null;generation++;profile=null;products=[];choices.clear();x.profile(null);if(me)setTimeout(()=>syncProfile().catch(e=>x.toast('성장 불러오기 실패: '+e.message)),0);});
 const friendButton=document.createElement('button');friendButton.textContent='친구 · 랭킹';friendButton.onclick=()=>friends().catch(e=>x.toast(e.message));document.querySelector('.header-right').append(friendButton);
