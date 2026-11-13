@@ -19,6 +19,27 @@ const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({
 
 const money = n => Number(n || 0).toLocaleString('ko-KR') + '원';
 
+function friendAvatar(userId){
+  if(!userId)return '';
+
+  const url=api.avatarUrl(userId);
+
+  return `<img
+    src="${esc(url)}"
+    alt=""
+    loading="lazy"
+    style="
+      width:38px;
+      height:38px;
+      border-radius:50%;
+      object-fit:cover;
+      flex-shrink:0;
+      background:#e8f1e9;
+    "
+    onerror="this.style.display='none'"
+  >`;
+}
+
 async function syncProfile() {
   const g = generation;
   const p = await api.profile();
@@ -775,6 +796,7 @@ async function friends() {
         <div class="sf-rank ${p.rank === 1 ? 'first' : ''}">
           ${p.rank === 1 ? '🏆' : p.rank}
         </div>
+        ${friendAvatar(p.user_id)}
         <div class="sf-person-name">
           <strong>
             ${esc(p.nickname || '친구')}
