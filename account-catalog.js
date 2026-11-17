@@ -5,7 +5,18 @@ import {createClient} from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2
 export const client=createClient(
   'https://ydmcllobucskfpcraovv.supabase.co',
   'sb_publishable_-nGdJxSWZTSSG0HxIsdkAg_EeV7EC8j'
-);
+
+logout: async () => {
+  const { data: { session }, error } = await client.auth.getSession();
+  if (error && error.name !== 'AuthSessionMissingError') throw error;
+  if (!session) return;
+
+  const { error: signOutError } = await client.auth.signOut();
+  if (signOutError && signOutError.name !== 'AuthSessionMissingError') {
+    throw signOutError;
+  }
+},
+
 
 const checked=({data,error})=>{
   if(error)throw error;
