@@ -318,6 +318,16 @@ async function showResults() {
     const { score, level } = analyzeNeed(answers);
     const advice = getAdvice(level);
 
+if(score<=2){
+  alert(
+    '⚠️ 잠깐! 지금 꼭 필요한 소비인가요?\n\n' +
+    `구매 필요성 점수: ${score}/6점\n\n` +
+    '구매 필요성이 낮게 나타났어요.\n' +
+    '이미 가진 물건을 활용하거나 빌리는 방법을 먼저 생각해 보세요.\n\n' +
+    '지금 구매하지 않아도 괜찮을까요?'
+  );
+}
+
     const sites = sobiPlaces.filter(p =>
       p.types.includes(type)
     );
