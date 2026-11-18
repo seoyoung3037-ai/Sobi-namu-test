@@ -374,22 +374,38 @@ function avatarMarkup(id){
   `;
 }
 
-function mount(){
-  const app=document.getElementById('app');
-  if(!app)return;
 
-  const settings=!!document.querySelector(
-    '#nav .nav.active'
-  )?.textContent?.includes('마이페이지');
+function mount() {
+  const app = document.getElementById('app');
+  if (!app) return;
 
-  if(settings){
-    if(root.parentElement!==app){
+  const activeNav = document.querySelector(
+    '#nav .nav.active, #nav [aria-current="page"], #nav [aria-selected="true"]'
+  );
+
+  const navText = activeNav?.textContent?.trim() || '';
+  const page = (
+    activeNav?.dataset?.page ||
+    activeNav?.dataset?.tab ||
+    ''
+  ).toLowerCase();
+
+  const isMyPage =
+    navText.includes('마이페이지') ||
+    navText.includes('내 정보') ||
+    navText.includes('내정보') ||
+    navText.includes('계정') ||
+    ['settings', 'mypage', 'account', 'profile', 'my'].includes(page);
+
+  if (isMyPage) {
+    if (root.parentElement !== app) {
       app.prepend(root);
     }
-  }else{
+  } else {
     root.remove();
   }
 }
+
 
 function friendly(e){
   const m=e?.message||String(e);
